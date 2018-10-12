@@ -17,6 +17,11 @@ def protonate_protein(topology, positions, variants=None, forcefield=None, platf
 		forcefield = _ForceFieldKernel_ImplicitSolvent()
 
 	modeller = app.Modeller(topology, positions)
+
+	weird_cb_bonds = [(x, y) for x, y in modeller.topology.bonds() if x.name=='CB' and y.name=='CB']
+	modeller.delete(weird_cb_bonds) # bonds do not occur between CB atoms ever, remove all such instances (i think modeller does this for CG models or something)
+
+	modeller.topology.createDisulfideBonds(modeller.positions)
 	protonationStates = modeller.addHydrogens(forcefield, pH=pH, platform=platform, variants=variants)
 
 	newtop = modeller.topology

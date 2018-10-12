@@ -46,6 +46,7 @@ def homology_model(sequence, templates, env=None,
 		pdb = md.load(pdblist[0])
 		for pdbfile in pdblist[1:]:
 			pdb = pdb.join(md.load(pdbfile))
+		# pdb.top.create_disulfide_bonds(pdb.openmm_positions(-1)) # 10/11/2018, try to update bond block for DISU to prevent topology errors with CYS
 		return pdb
 
 	models = []
@@ -73,6 +74,7 @@ def homology_model(sequence, templates, env=None,
 				elif isinstance(template, str):
 					# template is filename
 					mdl = complete_pdb(filename=template, env=env)
+				# mdl.patch_ss() # 10/11/2018 edit, could make function argument
 				template_files.append('template%d.pdb' % i)
 				mdl.write(template_files[-1])
 				aln.append_model(mdl, atom_files=template_files[-1], 

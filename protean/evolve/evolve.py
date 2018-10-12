@@ -214,14 +214,14 @@ class Evolve:
 		# recombine child sequences to generate new children for the subsequent generation
 		return
 
-	def _generateChildren(self, generation_index, verbose=0):
+	def _generateChildren(self, generation_index, verbose=0, T=400.):
 		# parallel generation of children within a single generation
 		# call recombine survivors here since natural variation should not
 		# replace structures from recombination...
 		with Parallel(n_jobs=self._nThreads, verbose=verbose) as parallel:
 			parallel(delayed(_variationKernel)
 				(
-					filenames=self._findSurvivors(generation_index-1),
+					filenames=self._findSurvivors(generation_index-1, T=T),
 					workdir=self._workdir,
 					generation_index=generation_index, 
 					child_index=i, 
@@ -246,19 +246,19 @@ class Evolve:
 			scores = self.scores[generation_index, :]
 			p = boltzmann_p(scores, T=400.)
 			order = np.argsort(p)[::-1]
-			total = np.asarray([np.sum(p[0:i+1]) for i in order], dtype=int)
+			total = np.asarray([np.sum(p[0:i+1]) for i in order], dtype=float)
 			last_order_idx = np.argwhere(total >= self._survivalCutoff)[0][0]
 			survivors = [order[i] for i in range(last_order_idx+1)]
 			survivors = [mutant_filename_constructor(self._workdir, generation_index, x) for x in survivors]
 			return survivors
 
-	def run(self, verbose=0):
+	def run(self, verbose=0, T=400.):
 		# if reset:
 		# 	self.survivors = [self.parent]
 		for i in range(self._nGenerations):
 			if verbose != 0:
-				print('*** Protean:Evolve - Generating and Evaluating Children for Generation %d ***' % i+1)
-			self._generateChildren(generation_index=i)
+				print('*** Protean:Evolve - Generating and Evaluating Children for Generation %d ***' % (i+1))
+			self._generateChildren(generation_index=i, T=T)
 			# if verbose:
 			# 	print('*** Protean:Evolve - Identifying Survivors for Generation %d ***' % i)
 			# survivors = self._findSurvivors(generation_index=i)
@@ -267,3 +267,15 @@ class Evolve:
 		self._notRun = False
 		return
 
+	def p(self, T=400.):
+		p = boltzmann_p(self.scores[:,:], T=T)
+		return p
+
+	def ranking(self, T=400., n=0):
+		p = self.p(T=T)
+		order = np.argsort(p, axis=None)[::-1]
+		indices = [(i, j) for i, j in zip(*np.unravel_index(order, dims=p.shape))]
+		if n <= 0:
+			return indices
+		elif n > 0:
+			return indices[0:n]

@@ -57,10 +57,16 @@ def _variationKernel(filenames, generation_index, child_index, sites, seq_db, sc
 			'restraintConstant': 5.0*unit.kilojoules/(unit.angstrom**2)
 		}
 
+	# try:
 	mdl = _mutagenesisKernel(trj, sites, **mutationOpts)
+	# mdl = mdl.center_coordinates()
+
 	mdl = _refinementKernel(mdl, **refinementOpts)
+	# mdl = mdl.center_coordinates()
+
 	mdl, score = _optimizationKernel(mdl, minimization=minimization, tolerance=tolerance, 
 		maxIterations=maxIterations, **optimizationOpts)
+	# mdl = mdl.center_coordinates()
 
 	if retain_models:
 		if workdir is not None:
@@ -68,10 +74,15 @@ def _variationKernel(filenames, generation_index, child_index, sites, seq_db, sc
 		else:
 			outpath = os.path.dirname(filename)
 		pdbout = mutant_filename_constructor(outpath, generation_index, child_index)
-		mdl.save(pdbout)
+		mdl.center_coordinates().save(pdbout)
 
 	seq_db[generation_index, child_index] = get_sequence(mdl)
 	score_db[generation_index, child_index] = score.value_in_unit(unit.kilojoule_per_mole)
+
+	# except:
+	# 	print('ERROR: failed to generate child %d from generation %d' % (child_index, generation_index))
+	# 	seq_db[generation_index, child_index] = '0'
+	# 	score_db[generation_index, child_index] = 0.
 
 	return
 
@@ -96,7 +107,7 @@ def _mutagenesisKernel(trj, sites, **kwargs):
 
 	"""
 	newtrj = random_mutagenesis(trj, sites, **kwargs)
-	return newtrj
+	return newtrj.center_coordinates()
 
 def _homologyKernel(sequence, templates, **kwargs):
 	if isinstance(templates, mdTrajecotry):
@@ -108,7 +119,8 @@ def _homologyKernel(sequence, templates, **kwargs):
 			templates = [md.load(x) for x in templates]
 
 	mdl = homology_model(sequence, templates, **kwargs)
-	return mdl
+	# mdl.top.create_disulfide_bonds(mdl.openmm_positions(-1)) # 10/11/2018, try to update bond block for DISU to prevent topology errors with CYS
+	return mdl.center_coordinates()
 
 def _refinementKernel(trj, **kwargs):
 	"""
@@ -125,7 +137,7 @@ def _refinementKernel(trj, **kwargs):
 		Refined structure
 	"""
 	newtrj = refine_structures(trj, **kwargs)
-	return newtrj
+	return newtrj.center_coordinates()
 
 def _optimizationKernel(trj, minimization=True, tolerance=5.*unit.kilojoule_per_mole, 
 	maxIterations=1000, **kwargs):
@@ -150,7 +162,7 @@ def _optimizationKernel(trj, minimization=True, tolerance=5.*unit.kilojoule_per_
 	optimizer.run()
 	newtrj = openmm2mdtraj(optimizer.getTopology(), optimizer.getPositions())
 	score = optimizer.getScore()
-	return (newtrj, score)
+	return (newtrj.center_coordinates(), score)
 
 def _retrieveStructure(workdir, generation_index, child_index):
 	filename = mutant_filename_constructor(workdir, generation_index, child_index)
@@ -184,4 +196,4 @@ def _generateStructure(sequence, templates, homologyOpts=None,
 	mdl = _refinementKernel(mdl, **refinementOpts)
 	mdl, score = _optimizationKernel(mdl, minimization=minimization, tolerance=tolerance, 
 		maxIterations=maxIterations, **optimizationOpts)
-	return mdl
+	return mdl.center_coordinates()

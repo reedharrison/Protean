@@ -33,6 +33,7 @@ def model_to_trj(model):
 		tmpfile = os.path.join(tmpdir, 'mdl.pdb')
 		model.write(file=tmpfile)
 		trj = md.load(tmpfile)
+		# trj.top.create_disulfide_bonds(trj.openmm_positions(-1)) # 10/11/2018, try to update bond block for DISU to prevent topology errors with CYS
 	return trj
 
 def trj_to_models(trj, env=None):
@@ -51,6 +52,7 @@ def trj_to_models(trj, env=None):
 		tmpdir = os.path.expanduser(h)
 		tmpfile = os.path.join(tmpdir, 'mdl.pdb')
 		for frame in trj:
+			frame = frame.center_coordinates() # added 2018/10/12 to avoid writing errors with out of bound coordinates!
 			frame.save(tmpfile)
 			model = complete_pdb(env, tmpfile, transfer_res_num=True)
 			models.append(model)

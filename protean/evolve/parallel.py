@@ -14,7 +14,7 @@ from protean.model.homology import homology_model
 def _variationKernel(filenames, generation_index, child_index, sites, seq_db, score_db,
 	minimization=True, tolerance=5.*unit.kilojoule_per_mole, maxIterations=1000,
 	mutationOpts=None, refinementOpts=None, optimizationOpts=None, 
-	retain_models=True, workdir=None):
+	retain_models=True, workdir=None, maxAttempts=5):
 	"""
 	generation_index: index of given generation (row)
 
@@ -31,58 +31,63 @@ def _variationKernel(filenames, generation_index, child_index, sites, seq_db, sc
 	"""
 	assert (filenames is not None) or (workdir is not None)
 
-	if isinstance(filenames, list):
-		filename = choice(filenames)
-	else:
-		filename = filenames
-	trj = md.load(filename)
-
-	if mutationOpts is None:
-		mutationOpts = {'degree':1, 'library': None}
-	if refinementOpts is None:
-		refinementOpts = {'variants':None, 'forcefield':None, 'platform':None, 'pH':7.0, 'minimize':False}
-	if optimizationOpts is None:
-		optimizationOpts = {
-			'temperatureRange': (350., 250.), 
-			'temperatureSteps': (11, 50), 
-			'simulationSteps': 100,
-			'forcefield': None,
-			'constructIntegrator': None, 
-			'constructSystem': None, 
-			'platform': None,
-			'moleculeSelections':['protein'], 
-			'constSimulationTemp': None, 
-			'constrainAtoms': None, 
-			'restrainAtoms': None,
-			'restraintConstant': 5.0*unit.kilojoules/(unit.angstrom**2)
-		}
-
-	# try:
-	mdl = _mutagenesisKernel(trj, sites, **mutationOpts)
-	# mdl = mdl.center_coordinates()
-
-	mdl = _refinementKernel(mdl, **refinementOpts)
-	# mdl = mdl.center_coordinates()
-
-	mdl, score = _optimizationKernel(mdl, minimization=minimization, tolerance=tolerance, 
-		maxIterations=maxIterations, **optimizationOpts)
-	# mdl = mdl.center_coordinates()
-
-	if retain_models:
-		if workdir is not None:
-			outpath = workdir
+	counter = 0
+	while counter < maxAttempts:
+		if isinstance(filenames, list):
+			filename = choice(filenames)
 		else:
-			outpath = os.path.dirname(filename)
-		pdbout = mutant_filename_constructor(outpath, generation_index, child_index)
-		mdl.center_coordinates().save(pdbout)
+			filename = filenames
+		trj = md.load(filename)
 
-	seq_db[generation_index, child_index] = get_sequence(mdl)
-	score_db[generation_index, child_index] = score.value_in_unit(unit.kilojoule_per_mole)
+		if mutationOpts is None:
+			mutationOpts = {'degree':1, 'library': None}
+		if refinementOpts is None:
+			refinementOpts = {'variants':None, 'forcefield':None, 'platform':None, 'pH':7.0, 'minimize':False}
+		if optimizationOpts is None:
+			optimizationOpts = {
+				'temperatureRange': (350., 250.), 
+				'temperatureSteps': (11, 50), 
+				'simulationSteps': 100,
+				'forcefield': None,
+				'constructIntegrator': None, 
+				'constructSystem': None, 
+				'platform': None,
+				'moleculeSelections':['protein'], 
+				'constSimulationTemp': None, 
+				'constrainAtoms': None, 
+				'restrainAtoms': None,
+				'restraintConstant': 5.0*unit.kilojoules/(unit.angstrom**2)
+			}
 
-	# except:
-	# 	print('ERROR: failed to generate child %d from generation %d' % (child_index, generation_index))
-	# 	seq_db[generation_index, child_index] = '0'
-	# 	score_db[generation_index, child_index] = 0.
+		try:
+			mdl = _mutagenesisKernel(trj, sites, **mutationOpts)
+			# mdl = mdl.center_coordinates()
+
+			mdl = _refinementKernel(mdl, **refinementOpts)
+			# mdl = mdl.center_coordinates()
+
+			mdl, score = _optimizationKernel(mdl, minimization=minimization, tolerance=tolerance, 
+				maxIterations=maxIterations, **optimizationOpts)
+			# mdl = mdl.center_coordinates()
+
+			if retain_models:
+				if workdir is not None:
+					outpath = workdir
+				else:
+					outpath = os.path.dirname(filename)
+				pdbout = mutant_filename_constructor(outpath, generation_index, child_index)
+				mdl.center_coordinates().save(pdbout)
+
+			seq_db[generation_index, child_index] = get_sequence(mdl)
+			score_db[generation_index, child_index] = score.value_in_unit(unit.kilojoule_per_mole)
+			counter = maxAttempts
+
+		except:
+			print('\nERROR: failed to generate child %d from generation %d ... attempt %d\n' % (child_index, generation_index, counter))
+			seq_db[generation_index, child_index] = '0'
+			score_db[generation_index, child_index] = 0.
+
+		counter += 1
 
 	return
 

@@ -86,10 +86,13 @@ class Evolve:
 		# Persistence mode: ‘r’ means read only (must exist); ‘r+’ means read/write (must exist); 
 		#	‘a’ means read/write (create if doesn’t exist); ‘w’ means create (overwrite if exists); 
 		#	‘w-‘ means create (fail if exists).
+		n_chunks = np.min([self._nChildren, abs(self._nThreads) * 10])
+
 		self.scores = zarr.open(os.path.join(self._workdir, 'scores.zarr'),
 			mode='w', 
 			shape=(self._nGenerations, self._nChildren),
-			chunks=(1, self._nChildren),
+			# chunks=(1, self._nChildren),
+			chunks=(1, n_chunks),
 			dtype=float,
 			synchronizer=scoreSynchronizer
 			)
@@ -98,7 +101,8 @@ class Evolve:
 		self.sequences = zarr.open(os.path.join(self._workdir, 'sequences.zarr'),
 			mode='w',
 			shape=(self._nGenerations, self._nChildren),
-			chunks=(1, self._nChildren),
+			# chunks=(1, self._nChildren),
+			chunks=(1, n_chunks),
 			dtype=str,
 			synchronizer=seqSynchronizer
 			)
@@ -214,7 +218,7 @@ class Evolve:
 		# recombine child sequences to generate new children for the subsequent generation
 		return
 
-	def _generateChildren(self, generation_index, verbose=0, T=400.):
+	def _generateChildren(self, generation_index, verbose=0, T=400., firstChild=0):
 		# parallel generation of children within a single generation
 		# call recombine survivors here since natural variation should not
 		# replace structures from recombination...
@@ -235,22 +239,33 @@ class Evolve:
 					refinementOpts=self._refinementOpts, 
 					optimizationOpts=self._optimizationOpts, 
 					retain_models=self._retain_models
-				) for i in range(self._nChildren)
+				) for i in range(firstChild, self._nChildren)
 			)
 		return
 
 	def _findSurvivors(self, generation_index, T=400.):
 		if generation_index < 0:
 			return self.parent
-		else:
+		elif T > 0.:
+			try:
+				scores = self.scores[generation_index, :]
+				p = boltzmann_p(scores, T=T)
+				order = np.argsort(p)[::-1]
+				total = np.asarray([np.sum(p[0:i+1]) for i in order], dtype=float)
+				last_order_idx = np.argwhere(total >= self._survivalCutoff)[0][0]
+				survivors = [order[i] for i in range(last_order_idx+1)]
+				survivors = [mutant_filename_constructor(self._workdir, generation_index, x) for x in survivors]
+				return survivors
+
+			except:
+				scores = self.scores[generation_index, :]
+				indmin = np.argmin(scores)
+				return [mutant_filename_constructor(self._workdir, generation_index, indmin)]
+
+		elif T <= 0.:
 			scores = self.scores[generation_index, :]
-			p = boltzmann_p(scores, T=400.)
-			order = np.argsort(p)[::-1]
-			total = np.asarray([np.sum(p[0:i+1]) for i in order], dtype=float)
-			last_order_idx = np.argwhere(total >= self._survivalCutoff)[0][0]
-			survivors = [order[i] for i in range(last_order_idx+1)]
-			survivors = [mutant_filename_constructor(self._workdir, generation_index, x) for x in survivors]
-			return survivors
+			indmin = np.argmin(scores)
+			return [mutant_filename_constructor(self._workdir, generation_index, indmin)]
 
 	def run(self, verbose=0, T=400.):
 		# if reset:
@@ -262,6 +277,24 @@ class Evolve:
 			# if verbose:
 			# 	print('*** Protean:Evolve - Identifying Survivors for Generation %d ***' % i)
 			# survivors = self._findSurvivors(generation_index=i)
+		if verbose != 0:
+			print('*** Protean:Evolve - Genetic Algorithm Complete! ***')
+		self._notRun = False
+		return
+
+	def restart(self, verbose=0, T=400.):
+		genMask = [any(self.sequences[i,:] == '0') for i in range(self._nGenerations)]
+		genIdx = [i for i, flag in enumerate(genMask) if flag][0]
+		childMask = [self.sequences[genIdx, j] == '0' for j in range(self._nChildren)]
+		childIdx = [i for i, flag in enumerate(childMask) if flag][0]
+
+		for i in range(genIdx, self._nGenerations):
+			if verbose != 0:
+				print('*** Protean:Evolve - Generating and Evaluating Children for Generation %d ***' % (i+1))
+			if i == genIdx:
+				self._generateChildren(generation_index=i, T=T, firstChild=childIdx)
+			else:
+				self._generateChildren(generation_index=i, T=T)
 		if verbose != 0:
 			print('*** Protean:Evolve - Genetic Algorithm Complete! ***')
 		self._notRun = False

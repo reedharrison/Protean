@@ -163,6 +163,20 @@ class SimulatedAnnealing:
 			self._simulation[i].context.setPositions(finalPositions[i])
 		return
 
+	def _validateBondLengths(self, cutoffBondLength=0.25*u.nanometers):
+		# i = 0 # only validate bonds for largest structure, should be index 0...
+		for i in self._keys:
+			top = self.getTopology(key=i)
+			pos = _getPositions(self._simulation[i].context)
+			for a1, a2 in top.bonds():
+				x1, y1, z1 = pos[a1.index]
+				x2, y2, z2 = pos[a2.index]
+				dist = ((x1 - x2)**2. + (y1 - y2)**2. + (z1 - z2)**2.)**0.5
+				if dist > cutoffBondLength:
+					# print("\n******INVALID BOND LENGTH DETECTED******\n")
+					return False
+		return True
+
 	def _storePositions(self):
 		for i in self._keys:
 			self._positions[i] = _getPositions(self._simulation[i].context)
@@ -198,7 +212,9 @@ class SimulatedAnnealing:
 				Ef -= val
 		prob = _boltzmannProbability(Ei, Ef, temperature=temperature)
 
-		if random() <= prob:
+		valid = self._validateBondLengths() # only add structure if bonds are somewhat valid...
+
+		if (random() <= prob) and (valid is True):
 			self._storePositions()
 			self._storeEnergy(keys=self._keys, energy=newEnergy)
 		return

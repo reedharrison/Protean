@@ -2,10 +2,11 @@ from protean.optimize.defaults import _ForceFieldKernel_ImplicitSolvent
 from protean.optimize.EnergyMinimization import EnergyMinimization
 
 from simtk.openmm import app
+from simtk import unit
 
 
 def protonate_protein(topology, positions, variants=None, forcefield=None, platform=None, pH=7.0,
-	minimize=False, **kwargs):
+	minimize=True, cutoffBondLength=2.5*unit.nanometers, **kwargs):
 	"""
 	Summary:
 	========
@@ -26,6 +27,16 @@ def protonate_protein(topology, positions, variants=None, forcefield=None, platf
 
 	newtop = modeller.topology
 	newpos = modeller.positions
+
+	if not minimize: # minimize if bad bonds detected
+		for a1, a2 in newtop.bonds():
+			x1, y1, z1 = newpos[a1.index]
+			x2, y2, z2 = newpos[a2.index]
+			dist = ((x1 - x2)**2. + (y1 - y2)**2. + (z1 - z2)**2.)**0.5
+			if dist > cutoffBondLength:
+				print('Bond length violations detected:')
+				print(a1, a2, dist)
+				minimize = True
 
 	if minimize:
 		optimize = EnergyMinimization(newtop, newpos, **kwargs)

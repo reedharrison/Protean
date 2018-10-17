@@ -2,7 +2,7 @@ from __future__ import print_function, division
 
 import os as os
 import numpy as np
-import zarr as zarr
+# import zarr as zarr
 import mdtraj as md
 import simtk.unit as unit
 
@@ -81,31 +81,33 @@ class Evolve:
 		self._initialize_workdir(workdir)
 		self._workdir = workdir
 
-		scoreSynchronizer = zarr.ProcessSynchronizer(os.path.join(self._workdir, 'scores.sync'))
-
 		# Persistence mode: ‘r’ means read only (must exist); ‘r+’ means read/write (must exist); 
 		#	‘a’ means read/write (create if doesn’t exist); ‘w’ means create (overwrite if exists); 
 		#	‘w-‘ means create (fail if exists).
-		n_chunks = np.min([self._nChildren, abs(self._nThreads) * 10])
 
-		self.scores = zarr.open(os.path.join(self._workdir, 'scores.zarr'),
-			mode='w', 
-			shape=(self._nGenerations, self._nChildren),
-			# chunks=(1, self._nChildren),
-			chunks=(1, n_chunks),
-			dtype=float,
-			synchronizer=scoreSynchronizer
-			)
+		# n_chunks = np.min([self._nChildren, abs(self._nThreads) * 10])
 
-		seqSynchronizer = zarr.ProcessSynchronizer(os.path.join(self._workdir, 'sequences.sync'))
-		self.sequences = zarr.open(os.path.join(self._workdir, 'sequences.zarr'),
-			mode='w',
-			shape=(self._nGenerations, self._nChildren),
-			# chunks=(1, self._nChildren),
-			chunks=(1, n_chunks),
-			dtype=str,
-			synchronizer=seqSynchronizer
-			)
+		self.scores = np.zeros((self._nGenerations, self._nChildren), dtype=float)
+		# scoreSynchronizer = zarr.ProcessSynchronizer(os.path.join(self._workdir, 'scores.sync'))
+		# self.scores = zarr.open(os.path.join(self._workdir, 'scores.zarr'),
+		# 	mode='w', 
+		# 	shape=(self._nGenerations, self._nChildren),
+		# 	chunks=(1, self._nChildren),
+		# 	# chunks=(1, n_chunks),
+		# 	dtype=float,
+		# 	# synchronizer=scoreSynchronizer
+		# 	)
+
+		self.sequences = np.empty((self._nGenerations, self._nChildren), dtype=object)
+		# seqSynchronizer = zarr.ProcessSynchronizer(os.path.join(self._workdir, 'sequences.sync'))
+		# self.sequences = zarr.open(os.path.join(self._workdir, 'sequences.zarr'),
+		# 	mode='w',
+		# 	shape=(self._nGenerations, self._nChildren),
+		# 	chunks=(1, self._nChildren),
+		# 	# chunks=(1, n_chunks),
+		# 	dtype=str,
+		# 	# synchronizer=seqSynchronizer
+		# 	)
 
 		self.parent = os.path.join(self._workdir, 'parent.pdb')
 		pdb.save(self.parent)
@@ -164,20 +166,20 @@ class Evolve:
 			print('Error: %s file not found!' % filename)
 		return
 
-	def _generateStructures(self, indices, templates=None, verbose=0, **kwargs):
-		# hidden method to generate structure from sequence.
-		# useful if structural file gets deleted. saves to work
-		# directory for persistence.
-		#
-		# indicies is a tuple of the form (gen idx, child idx)
-		sequences = [self.sequences[g, c] for g, c in indices]
-		if templates is None:
-			templates = self.parent
+	# def _generateStructures(self, indices, templates=None, verbose=0, **kwargs):
+	# 	# hidden method to generate structure from sequence.
+	# 	# useful if structural file gets deleted. saves to work
+	# 	# directory for persistence.
+	# 	#
+	# 	# indicies is a tuple of the form (gen idx, child idx)
+	# 	sequences = [self.sequences[g, c] for g, c in indices]
+	# 	if templates is None:
+	# 		templates = self.parent
 
-		trj = None
-		with Parallel(n_jobs=self._nThreads, prefer='processes', verbose=verbose) as parallel:
-			trj = parallel(delayed(_generateStructure)(sequence=x, templates=templates, **kwargs) for x in sequences)
-		return trj
+	# 	trj = None
+	# 	with Parallel(n_jobs=self._nThreads, prefer='processes', verbose=verbose) as parallel:
+	# 		trj = parallel(delayed(_generateStructure)(sequence=x, templates=templates, **kwargs) for x in sequences)
+	# 	return trj
 
 	def _deleteStructures(self, indices):
 		# delete PDB files in work directory if they are not needed (AKA not survivors...)
@@ -223,15 +225,15 @@ class Evolve:
 		# call recombine survivors here since natural variation should not
 		# replace structures from recombination...
 		with Parallel(n_jobs=self._nThreads, verbose=verbose) as parallel:
-			parallel(delayed(_variationKernel)
+			results = parallel(delayed(_variationKernel)
 				(
 					filenames=self._findSurvivors(generation_index-1, T=T),
 					workdir=self._workdir,
 					generation_index=generation_index, 
 					child_index=i, 
 					sites=self._sites, 
-					seq_db=self.sequences, 
-					score_db=self.scores,
+					# seq_db=self.sequences, 
+					# score_db=self.scores,
 					mutationOpts={
 						'degree': self._mutationDegree,
 						'library': self._library,
@@ -241,6 +243,15 @@ class Evolve:
 					retain_models=self._retain_models
 				) for i in range(firstChild, self._nChildren)
 			)
+
+			scores = []
+			sequences = []
+			for result in results:
+				scores.append(result[0])
+				sequences.append(result[1])
+			self.scores[generation_index, :] = scores
+			self.sequences[generation_index, :] = sequences
+
 		return
 
 	def _findSurvivors(self, generation_index, T=400.):
@@ -258,6 +269,7 @@ class Evolve:
 				return survivors
 
 			except:
+				print('WARNING: could not calculate Boltzmann probabilities, only propagating most fit sequence')
 				scores = self.scores[generation_index, :]
 				indmin = np.argmin(scores)
 				return [mutant_filename_constructor(self._workdir, generation_index, indmin)]
@@ -272,7 +284,7 @@ class Evolve:
 		# 	self.survivors = [self.parent]
 		for i in range(self._nGenerations):
 			if verbose != 0:
-				print('*** Protean:Evolve - Generating and Evaluating Children for Generation %d ***' % (i+1))
+				print('*** Protean:Evolve - Generating and Evaluating Children for Generation %d ***' % (i))
 			self._generateChildren(generation_index=i, T=T)
 			# if verbose:
 			# 	print('*** Protean:Evolve - Identifying Survivors for Generation %d ***' % i)
@@ -282,15 +294,22 @@ class Evolve:
 		self._notRun = False
 		return
 
-	def restart(self, verbose=0, T=400.):
-		genMask = [any(self.sequences[i,:] == '0') for i in range(self._nGenerations)]
-		genIdx = [i for i, flag in enumerate(genMask) if flag][0]
-		childMask = [self.sequences[genIdx, j] == '0' for j in range(self._nChildren)]
-		childIdx = [i for i, flag in enumerate(childMask) if flag][0]
+	def restart(self, verbose=0, T=400., generation_index=None, child_index=None):
+		if generation_index is None:
+			genMask = [any(self.sequences[i,:] is None) for i in range(self._nGenerations)]
+			genIdx = [i for i, flag in enumerate(genMask) if flag][0]
+		else:
+			genIdx = generation_index
+
+		if child_index is None:
+			childMask = [self.sequences[genIdx, j] is None for j in range(self._nChildren)]
+			childIdx = [i for i, flag in enumerate(childMask) if flag][0]
+		else:
+			childIdx = child_index
 
 		for i in range(genIdx, self._nGenerations):
 			if verbose != 0:
-				print('*** Protean:Evolve - Generating and Evaluating Children for Generation %d ***' % (i+1))
+				print('*** Protean:Evolve - Generating and Evaluating Children for Generation %d ***' % (i))
 			if i == genIdx:
 				self._generateChildren(generation_index=i, T=T, firstChild=childIdx)
 			else:
@@ -304,10 +323,11 @@ class Evolve:
 		p = boltzmann_p(self.scores[:,:], T=T)
 		return p
 
-	def ranking(self, T=400., n=0):
-		p = self.p(T=T)
-		order = np.argsort(p, axis=None)[::-1]
-		indices = [(i, j) for i, j in zip(*np.unravel_index(order, dims=p.shape))]
+	def ranking(self, n=0):
+		# p = self.p(T=T)
+		scores = self.scores
+		order = np.argsort(scores, axis=None)#[::-1]
+		indices = [(i, j) for i, j in zip(*np.unravel_index(order, dims=scores.shape))]
 		if n <= 0:
 			return indices
 		elif n > 0:

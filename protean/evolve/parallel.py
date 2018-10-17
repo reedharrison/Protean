@@ -1,5 +1,6 @@
 from __future__ import print_function, division
 
+import numpy as np
 import mdtraj as md
 import simtk.unit as unit
 from random import choice
@@ -11,7 +12,7 @@ from protean.utilities.conversion import openmm2mdtraj, mdtraj2openmm
 from protean.model.homology import homology_model
 
 
-def _variationKernel(filenames, generation_index, child_index, sites, seq_db, score_db,
+def _variationKernel(filenames, generation_index, child_index, sites, #seq_db, score_db,
 	minimization=True, tolerance=5.*unit.kilojoule_per_mole, maxIterations=1000,
 	mutationOpts=None, refinementOpts=None, optimizationOpts=None, 
 	retain_models=True, workdir=None, maxAttempts=5):
@@ -30,6 +31,9 @@ def _variationKernel(filenames, generation_index, child_index, sites, seq_db, sc
 	score_db: object for persistant zarr ... contains all scores in kJ/mol
 	"""
 	assert (filenames is not None) or (workdir is not None)
+
+	energy = np.nan
+	sequence = None
 
 	counter = 0
 	while counter < maxAttempts:
@@ -78,18 +82,22 @@ def _variationKernel(filenames, generation_index, child_index, sites, seq_db, sc
 				pdbout = mutant_filename_constructor(outpath, generation_index, child_index)
 				mdl.center_coordinates().save(pdbout)
 
-			seq_db[generation_index, child_index] = get_sequence(mdl)
-			score_db[generation_index, child_index] = score.value_in_unit(unit.kilojoule_per_mole)
+			# seq_db[generation_index, child_index] = get_sequence(mdl)
+			# score_db[generation_index, child_index] = score.value_in_unit(unit.kilojoule_per_mole)
+
+			energy = score.value_in_unit(unit.kilojoule_per_mole)
+			sequence = get_sequence(mdl)
+
 			counter = maxAttempts
 
 		except:
 			print('\nERROR: failed to generate child %d from generation %d ... attempt %d\n' % (child_index, generation_index, counter))
-			seq_db[generation_index, child_index] = '0'
-			score_db[generation_index, child_index] = 0.
+			# seq_db[generation_index, child_index] = None
+			# score_db[generation_index, child_index] = np.nan
 
 		counter += 1
 
-	return
+	return (energy, sequence)
 
 def _mutagenesisKernel(trj, sites, **kwargs):
 	"""

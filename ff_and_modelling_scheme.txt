@@ -1,0 +1,41 @@
+SUMMARY AND DISCUSSION
+======================
+
+This version of Protean must support modifications including:
+	1) phosphorylated amino acids
+	2) methylated amino acids
+	3) acetylated amino acids
+	
+To support regions of flexible length, we must use modeller to build models. Thus, we may
+have to simply mutate to base amino acid, prior to modification, then patch model after modeller
+generates loops. Also, keep in mind that homology modelling will discard hydrogens, so we need
+to add them in, and correctly apply patches each time.
+
+I want to avoid keeping track of structural information outside of topology files. So I need to
+rewrite current code to an appropriate mutator strategy.
+	
+Main complication: while structural information can be archived in topology files, insertion regions
+are dynamic. I can recalculate postions given some initial reference structure with defined
+insertion/deletion regions, but this requires more cpu tasks. I could also add a variable to keep
+track of changes in insertion/deletion regions, but this requires more disk space. I think second
+approach (using disk space) is better and more robust, especially when considering how non-standard
+amino acids or modified amino acids must be supported.
+
+MAIN SOFTWARE COMPONENTS
+========================
+
+Protean requires the following methods:
+	1) Energy minimization (constant energy)							Done
+	2) Energy optimization (NPT) - simulated annealing					Done
+	3) Model preparation - add hydrogens, homology modelling			Done		
+	4) Structure editing - mutate residues, insert/delete residues		Done
+	5) Evolution scheduler - randomly edit structure within				----
+		some constraints
+
+BRAINSTORMING
+=============
+
+If simulated annealing approach is not robust enough, which I suspect is the case, then perhaps
+I can run implicit solvent MD on each structure until energy variance within the last time window
+is below a certain threshold. Acceptance/rejection criteria can be determines by average energy
+within this time window. It is possible this will even be faster than the alternative approach.

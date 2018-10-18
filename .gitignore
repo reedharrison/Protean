@@ -1,3 +1,4 @@
-ff_and_modelling_scheme.txt
 *.pyc
 *.BAK
+./*.txt
+./tests/*

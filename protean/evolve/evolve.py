@@ -256,12 +256,13 @@ class Evolve:
 		return
 
 	def _findSurvivors(self, generation_index):
+		k = self._boltzmannFactor
 		if generation_index < 0:
 			return self.parent
 		elif k > 0.:
 			try:
 				scores = self.scores[generation_index, :]
-				p = boltzmann_p(scores, k=self._boltzmannFactor)
+				p = boltzmann_p(scores, k=k)
 				order = np.argsort(p)[::-1]
 				total = np.asarray([np.sum(p[0:i+1]) for i in order], dtype=float)
 				last_order_idx = np.argwhere(total >= self._survivalCutoff)[0][0]

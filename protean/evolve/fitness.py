@@ -27,7 +27,7 @@ KB = unit.constants.BOLTZMANN_CONSTANT_kB.value_in_unit(unit.kilojoule / unit.ke
 def boltzmann_f(x, k=10.):
 	if isinstance(x, list):
 		x = np.array(x, dtype=float)
-	return np.exp(-1.*x / k)
+	return np.exp(x / k)
 
 def boltzmann_p(scores, k=10.):
 	# Changed method, T is actually a boltzmann factor

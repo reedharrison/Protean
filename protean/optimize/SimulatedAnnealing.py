@@ -210,7 +210,11 @@ class SimulatedAnnealing:
 				Ei -= val
 			for val in newEnergy[1:]:
 				Ef -= val
-		prob = _boltzmannProbability(Ei, Ef, temperature=temperature)
+
+		rescale = oldEnergy[0] / Ei # adding this so that energy score is of same magnitude as potential energy
+									# this is done to make acceptance a bit more likely
+				
+		prob = _boltzmannProbability(Ei*rescale, Ef*rescale, temperature=temperature)
 
 		valid = self._validateBondLengths() # only add structure if bonds are somewhat valid...
 

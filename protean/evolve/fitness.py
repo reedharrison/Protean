@@ -10,14 +10,25 @@ def boltzmann_f(x, T=300.):
 		x = np.array(x, dtype=float)
 	return np.exp(-1.*x / (AVO*KB*T))
 
-def boltzmann_p(scores, T=400.):
-	# Note that if T (temperature) is too low, then this form may be unstable
-	# temperature may need to be increased to non-physiological values to 
-	# prevent Nan's. There may be a more numerically stable solution to this
-	# problem.
-	# MAX_FLOAT64 = 1.7976931348623157e+308 # cannot represent a number larger than this, force values larger to this particular value.
+# def boltzmann_p(scores, T=400.):
+# 	# Note that if T (temperature) is too low, then this form may be unstable
+# 	# temperature may need to be increased to non-physiological values to 
+# 	# prevent Nan's. There may be a more numerically stable solution to this
+# 	# problem.
+# 	# MAX_FLOAT64 = 1.7976931348623157e+308 # cannot represent a number larger than this, force values larger to this particular value.
+# 	if isinstance(scores, list):
+# 		scores = np.array(scores, dtype=float)
+# 	q = boltzmann_f(scores, T=T)
+# 	if np.isinf(q.sum()):
+# 		raise Exception('Overflow in protean.evolve.fitness.boltzmann_p! Try setting T to a larger value.')
+# 	p = q / q.sum()
+# 	return p
+
+def boltzmann_p(scores, T=10.):
+	# Changed method, T is actually a boltzmann factor
 	if isinstance(scores, list):
 		scores = np.array(scores, dtype=float)
+	scores = scores / scores.min()
 	q = boltzmann_f(scores, T=T)
 	if np.isinf(q.sum()):
 		raise Exception('Overflow in protean.evolve.fitness.boltzmann_p! Try setting T to a larger value.')

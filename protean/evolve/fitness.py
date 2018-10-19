@@ -5,10 +5,10 @@ AVO = unit.AVOGADRO_CONSTANT_NA.value_in_unit(unit.mole**-1)
 KB = unit.constants.BOLTZMANN_CONSTANT_kB.value_in_unit(unit.kilojoule / unit.kelvin)
 
 
-def boltzmann_f(x, T=300.):
-	if isinstance(x, list):
-		x = np.array(x, dtype=float)
-	return np.exp(-1.*x / (AVO*KB*T))
+# def boltzmann_f(x, T=300.):
+# 	if isinstance(x, list):
+# 		x = np.array(x, dtype=float)
+# 	return np.exp(-1.*x / (AVO*KB*T))
 
 # def boltzmann_p(scores, T=400.):
 # 	# Note that if T (temperature) is too low, then this form may be unstable
@@ -24,13 +24,18 @@ def boltzmann_f(x, T=300.):
 # 	p = q / q.sum()
 # 	return p
 
-def boltzmann_p(scores, T=10.):
+def boltzmann_f(x, k=10.):
+	if isinstance(x, list):
+		x = np.array(x, dtype=float)
+	return np.exp(-1.*x / k)
+
+def boltzmann_p(scores, k=10.):
 	# Changed method, T is actually a boltzmann factor
 	if isinstance(scores, list):
 		scores = np.array(scores, dtype=float)
 	scores = scores / scores.min()
-	q = boltzmann_f(scores, T=T)
+	q = boltzmann_f(scores, k=k)
 	if np.isinf(q.sum()):
-		raise Exception('Overflow in protean.evolve.fitness.boltzmann_p! Try setting T to a larger value.')
+		raise Exception('Overflow in protean.evolve.fitness.boltzmann_p! Try adjusting k.')
 	p = q / q.sum()
 	return p

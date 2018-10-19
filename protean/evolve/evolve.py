@@ -21,7 +21,7 @@ class Evolve:
 	def __init__(self, parent, workdir=None, nGenerations=3, nChildren=100,
 		mutationDegree=1, survivalCutoff=0.2, nThreads=-2, library=None,
 		sites=None, selection='protein', atom_indices=None, retain_models=True,
-		refinementOpts=None, optimizationOpts=None):
+		refinementOpts=None, optimizationOpts=None, boltzmannFactor=10.):
 		"""
 		Import parent structure
 		=======================
@@ -43,6 +43,7 @@ class Evolve:
 		self._library = library
 		self._nThreads = nThreads
 		self._retain_models = retain_models
+		self._boltzmannFactor = boltzmannFactor
 
 		if atom_indices is not None:
 			self._sites = generate_sites(pdb, indices=atom_indices)
@@ -220,14 +221,14 @@ class Evolve:
 		# recombine child sequences to generate new children for the subsequent generation
 		return
 
-	def _generateChildren(self, generation_index, verbose=0, T=400., firstChild=0):
+	def _generateChildren(self, generation_index, verbose=0, firstChild=0):
 		# parallel generation of children within a single generation
 		# call recombine survivors here since natural variation should not
 		# replace structures from recombination...
 		with Parallel(n_jobs=self._nThreads, verbose=verbose) as parallel:
 			results = parallel(delayed(_variationKernel)
 				(
-					filenames=self._findSurvivors(generation_index-1, T=T),
+					filenames=self._findSurvivors(generation_index-1),
 					workdir=self._workdir,
 					generation_index=generation_index, 
 					child_index=i, 
@@ -254,13 +255,13 @@ class Evolve:
 
 		return
 
-	def _findSurvivors(self, generation_index, T=400.):
+	def _findSurvivors(self, generation_index):
 		if generation_index < 0:
 			return self.parent
-		elif T > 0.:
+		elif k > 0.:
 			try:
 				scores = self.scores[generation_index, :]
-				p = boltzmann_p(scores, T=T)
+				p = boltzmann_p(scores, k=self._boltzmannFactor)
 				order = np.argsort(p)[::-1]
 				total = np.asarray([np.sum(p[0:i+1]) for i in order], dtype=float)
 				last_order_idx = np.argwhere(total >= self._survivalCutoff)[0][0]
@@ -274,18 +275,18 @@ class Evolve:
 				indmin = np.argmin(scores)
 				return [mutant_filename_constructor(self._workdir, generation_index, indmin)]
 
-		elif T <= 0.:
+		elif k <= 0.:
 			scores = self.scores[generation_index, :]
 			indmin = np.argmin(scores)
 			return [mutant_filename_constructor(self._workdir, generation_index, indmin)]
 
-	def run(self, verbose=0, T=400.):
+	def run(self, verbose=0):
 		# if reset:
 		# 	self.survivors = [self.parent]
 		for i in range(self._nGenerations):
 			if verbose != 0:
 				print('*** Protean:Evolve - Generating and Evaluating Children for Generation %d ***' % (i))
-			self._generateChildren(generation_index=i, T=T)
+			self._generateChildren(generation_index=i)
 			# if verbose:
 			# 	print('*** Protean:Evolve - Identifying Survivors for Generation %d ***' % i)
 			# survivors = self._findSurvivors(generation_index=i)
@@ -294,7 +295,7 @@ class Evolve:
 		self._notRun = False
 		return
 
-	def restart(self, verbose=0, T=400., generation_index=None, child_index=None):
+	def restart(self, verbose=0, generation_index=None, child_index=None):
 		if generation_index is None:
 			genMask = [any(self.sequences[i,:] is None) for i in range(self._nGenerations)]
 			genIdx = [i for i, flag in enumerate(genMask) if flag][0]
@@ -311,16 +312,16 @@ class Evolve:
 			if verbose != 0:
 				print('*** Protean:Evolve - Generating and Evaluating Children for Generation %d ***' % (i))
 			if i == genIdx:
-				self._generateChildren(generation_index=i, T=T, firstChild=childIdx)
+				self._generateChildren(generation_index=i, firstChild=childIdx)
 			else:
-				self._generateChildren(generation_index=i, T=T)
+				self._generateChildren(generation_index=i)
 		if verbose != 0:
 			print('*** Protean:Evolve - Genetic Algorithm Complete! ***')
 		self._notRun = False
 		return
 
-	def p(self, T=400.):
-		p = boltzmann_p(self.scores[:,:], T=T)
+	def p(self):
+		p = boltzmann_p(self.scores[:,:], k=self._boltzmannFactor)
 		return p
 
 	def ranking(self, n=0):

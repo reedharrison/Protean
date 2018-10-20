@@ -27,13 +27,13 @@ KB = unit.constants.BOLTZMANN_CONSTANT_kB.value_in_unit(unit.kilojoule / unit.ke
 def boltzmann_f(x, k=10.):
 	if isinstance(x, list):
 		x = np.array(x, dtype=float)
-	return np.exp(x / k)
+	return np.exp(-1*x / k)
 
 def boltzmann_p(scores, k=10.):
 	# Changed method, T is actually a boltzmann factor
 	if isinstance(scores, list):
 		scores = np.array(scores, dtype=float)
-	scores = scores / scores.min()
+	scores = scores / np.abs(scores).max() # normalize without changing sign
 	q = boltzmann_f(scores, k=k)
 	if np.isinf(q.sum()):
 		raise Exception('Overflow in protean.evolve.fitness.boltzmann_p! Try adjusting k.')

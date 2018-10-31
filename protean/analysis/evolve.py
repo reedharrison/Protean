@@ -99,7 +99,11 @@ def sequenceLogo(evolver, filename=None, k=10., chainid=0, generation_indices=No
 	sequences = extractEvolvedSequences(evolver, generation_indices=generation_indices,
 		children_indices=children_indices, alphabet=alphabet)
 	sequences = [x[firstPosition:lastPosition] for x in sequences]
-	m = reweightedMotif(sequences, fitness=evolver.scores.flatten(), k=10.)
+
+	scores = np.asarray([x for x in evolver.scores.flatten() if not np.isnan(x)])
+	sequences = [x for x, y in zip(sequences, evolver.scores.flatten()) if not np.isnan(y)]
+
+	m = reweightedMotif(sequences, fitness=scores, k=10.)
 	if filename is None:
 		return m
 	else:

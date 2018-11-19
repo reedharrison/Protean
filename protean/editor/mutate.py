@@ -116,7 +116,7 @@ def mutate_sequence(parent, mutations, scheme=None):
 	some other method for this.
 	"""
 	newsequence = []
-	for i, segment in enumerate(get_sequence(parent).split('/')):
+	for i, segment in enumerate(parent.split('/')):
 		positions = []
 		types = []
 		for mutation in mutations:
@@ -165,11 +165,11 @@ def refine_structures(trjs, **kwargs):
 		topology, positions = protonate_protein(topology, positions, **kwargs)
 		return openmm2mdtraj(topology, positions)
 
-def random_mutagenesis(parent, sites, degree=1, library=None):
+def random_mutagenesis(parent, sites, degree=1, library=None, scheme=None):
 	# sites should be of the form (chain_idx, position_idx)
 	if library is None:
 		library = _DEFAULT_AA_LIBRARY
-	segments = get_sequence(parent, chainSep='/').split('/')
+	segments = parent.split('/')
 	mutations = []
 	for chain_idx, position_idx in choice(list(it.combinations(sites, degree))):
 		newtypes = [x for x in library if segments[chain_idx][position_idx] != x]
@@ -178,5 +178,15 @@ def random_mutagenesis(parent, sites, degree=1, library=None):
 			'position': position_idx, 
 			'type': choice(newtypes)
 		})
-	mdl = mutate_structure(parent=parent, mutations=mutations)
-	return mdl
+	# mdl = mutate_structure(parent=parent, mutations=mutations)
+	seq = mutate_sequence(parent=parent, mutations=mutations, scheme=scheme)
+	return seq
+
+def random_recombination(parents):
+	parent1, parent2 = choice(list(it.permutations(parents, 2)))
+	sequence = []
+	for segment1, segment2 in zip(parent1.split('/'), parent2.split('/')):
+		assert len(segment1) == len(segment2)
+		xPos = choice(list(range(len(segment1))))
+		sequence.append(segment1[:xPos] + segment2[xPos:])
+	return '/'.join(sequence)

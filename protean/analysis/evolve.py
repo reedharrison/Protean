@@ -112,8 +112,10 @@ def sequenceLogo(evolver, filename=None, k=10., chainid=0, generation_indices=No
 		return
 
 def plotScoreDistribution(evolver, byGeneration=True, ax=None, **kwargs):
+	newFig = False
 	if ax is None:
 		fig, ax = plt.subplots(1,1)
+		newFig = True
 	if byGeneration is True:
 		scores = evolver.scores.flatten()
 		scores_size = evolver.scores.size

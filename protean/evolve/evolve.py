@@ -2,6 +2,7 @@ from __future__ import print_function, division
 
 import os as os
 import numpy as np
+import pickle as p
 # import zarr as zarr
 import mdtraj as md
 import simtk.unit as unit
@@ -18,8 +19,8 @@ from protean.evolve.fitness import boltzmann_p
 
 
 class Evolve:
-	def __init__(self, parent, workdir=None, nGenerations=3, nChildren=100,
-		mutationDegree=1, survivalCutoff=0.2, nThreads=-2, library=None,
+	def __init__(self, parent, workdir=None, nGenerations=3, nChildren=100, percentRecombination=0.05,
+		mutationDegree=1, propogateParent=True, survivalCutoff=0.2, nThreads=-2, library=None,
 		sites=None, selection='protein', atom_indices=None, retain_models=True,
 		refinementOpts=None, optimizationOpts=None, boltzmannFactor=10.):
 		"""
@@ -38,7 +39,9 @@ class Evolve:
 		"""
 		self._nGenerations = int(nGenerations)
 		self._nChildren = int(nChildren)
+		self._percentRecombination = percentRecombination
 		self._mutationDegree = int(mutationDegree)
+		self._propogateParent = bool(propogateParent)
 		self._survivalCutoff = float(survivalCutoff)
 		self._library = library
 		self._nThreads = nThreads
@@ -51,7 +54,7 @@ class Evolve:
 			self._sites = generate_sites(pdb, selection=selection)
 
 		if refinementOpts is None:
-			self._refinementOpts = {'variants':None, 'forcefield':None, 'platform':None, 'pH':7.0, 'minimize':False}
+			self._refinementOpts = {'variants':None, 'forcefield':None, 'platform':None, 'pH':7.0, 'minimize':True}
 		if optimizationOpts is None:
 			optimizationOpts = {
 				'temperatureRange': (350., 250.), 
@@ -81,6 +84,7 @@ class Evolve:
 			workdir = os.path.join(os.getcwd(), 'protean_evolution')
 		self._initialize_workdir(workdir)
 		self._workdir = workdir
+		self._checkpoint = os.path.join(self._workdir, 'evolve.cpt') # checkpoint file for to dump results with pickle
 
 		# Persistence mode: ‘r’ means read only (must exist); ‘r+’ means read/write (must exist); 
 		#	‘a’ means read/write (create if doesn’t exist); ‘w’ means create (overwrite if exists); 
@@ -217,15 +221,14 @@ class Evolve:
 		assert all([(isinstance(x, list) or isinstance(x, tuple)) and (len(x)==2) for x in indices])
 		return [self.sequences[g, c] for g, c in indices]
 
-	def _recombineSurvivors(self, generation_index, children_indices):
-		# recombine child sequences to generate new children for the subsequent generation
-		return
-
 	def _generateChildren(self, generation_index, verbose=0, firstChild=0):
 		# parallel generation of children within a single generation
 		# call recombine survivors here since natural variation should not
 		# replace structures from recombination...
-		with Parallel(n_jobs=self._nThreads, verbose=verbose) as parallel:
+		firstParent = self._propogateParent
+		if firstParent: firstParent = self.parent
+
+		with Parallel(backend='loky', n_jobs=self._nThreads, verbose=verbose) as parallel:
 			results = parallel(delayed(_variationKernel)
 				(
 					filenames=self._findSurvivors(generation_index-1),
@@ -241,7 +244,9 @@ class Evolve:
 					}, 
 					refinementOpts=self._refinementOpts, 
 					optimizationOpts=self._optimizationOpts, 
-					retain_models=self._retain_models
+					retain_models=self._retain_models,
+					percentRecombination=self._percentRecombination,
+					firstParent=firstParent
 				) for i in range(firstChild, self._nChildren)
 			)
 
@@ -253,12 +258,15 @@ class Evolve:
 			self.scores[generation_index, :] = scores
 			self.sequences[generation_index, :] = sequences
 
+		with open(self._checkpoint, 'wb') as h:
+			p.dump(self, h)
+
 		return
 
 	def _findSurvivors(self, generation_index):
 		k = self._boltzmannFactor
 		if generation_index < 0:
-			return self.parent
+			return [self.parent]
 		elif k > 0.:
 			try:
 				scores = self.scores[generation_index, :]
@@ -269,13 +277,11 @@ class Evolve:
 				survivors = [order[i] for i in range(last_order_idx+1)]
 				survivors = [mutant_filename_constructor(self._workdir, generation_index, x) for x in survivors]
 				return survivors
-
 			except:
 				print('WARNING: could not calculate Boltzmann probabilities, only propagating most fit sequence')
 				scores = self.scores[generation_index, :]
 				indmin = np.argmin(scores)
 				return [mutant_filename_constructor(self._workdir, generation_index, indmin)]
-
 		elif k <= 0.:
 			scores = self.scores[generation_index, :]
 			indmin = np.argmin(scores)
@@ -297,6 +303,9 @@ class Evolve:
 		return
 
 	def restart(self, verbose=0, generation_index=None, child_index=None):
+		with open(self._checkpoint, 'rb') as h:
+			self = p.load(h)
+
 		if generation_index is None:
 			genMask = [any(self.sequences[i,:] is None) for i in range(self._nGenerations)]
 			genIdx = [i for i, flag in enumerate(genMask) if flag][0]
@@ -325,7 +334,7 @@ class Evolve:
 		p = boltzmann_p(self.scores[:,:], k=self._boltzmannFactor)
 		return p
 
-	def ranking(self, n=0):
+	def rank(self, n=0):
 		# p = self.p(T=T)
 		scores = self.scores
 		order = np.argsort(scores, axis=None)#[::-1]

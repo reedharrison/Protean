@@ -14,7 +14,7 @@ def _getPositions(context):
 	return positions
 
 class EnergyMinimization:
-	def __init__(self, topology, positions, energyTol=5*unit.kilojoule_per_mole, maxIterations=100,
+	def __init__(self, topology, positions, energyTol=5*unit.kilojoule_per_mole, maxIterations=1000,
 		forcefield=None, constructIntegrator=None, constructSystem=None, 
 		platform=None, restrainAtoms=None, temperature=300.,
 		restraintConstant=5.0*unit.kilojoules/(unit.angstrom**2)):

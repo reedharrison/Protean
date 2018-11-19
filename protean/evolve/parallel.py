@@ -3,127 +3,198 @@ from __future__ import print_function, division
 import numpy as np
 import mdtraj as md
 import simtk.unit as unit
-from random import choice
+from random import choice, random
 
 from protean.evolve.defaults import mutant_filename_constructor
 from protean.optimize.SimulatedAnnealing import SimulatedAnnealing
-from protean.editor.mutate import random_mutagenesis, refine_structures, get_sequence
+from protean.editor.mutate import random_mutagenesis, random_recombination, refine_structures, get_sequence
 from protean.utilities.conversion import openmm2mdtraj, mdtraj2openmm
 from protean.model.homology import homology_model
 
 
 def _variationKernel(filenames, generation_index, child_index, sites, #seq_db, score_db,
+	firstParent=False, percentRecombination=-1.0,
 	minimization=True, tolerance=5.*unit.kilojoule_per_mole, maxIterations=1000,
 	mutationOpts=None, refinementOpts=None, optimizationOpts=None, 
 	retain_models=True, workdir=None, maxAttempts=5):
-	"""
-	generation_index: index of given generation (row)
 
-	child_index: index of given child (column)
-
-	filename: output directory inferred from filename... (copy initial parent structure to output 
-		directory and give this path)
-
-	sites: mutation sites
-
-	seq_db: object for persistant zarr ... contains all sequences for regenerating models
-
-	score_db: object for persistant zarr ... contains all scores in kJ/mol
-	"""
 	assert (filenames is not None) or (workdir is not None)
+	if (firstParent is not False) and (generation_index != 0):
+		filenames = filenames + [firstParent]
 
+	# Prepare
 	energy = np.nan
 	sequence = None
+	if mutationOpts is None:
+		mutationOpts = {'degree':1, 'library': None}
+	if refinementOpts is None:
+		refinementOpts = {
+			'variants':None, 
+			'forcefield':None, 
+			'platform':None, 
+			'pH':7.0, 
+			'minimize':True,
+			'maxIterations':1000,
+			'energyTol':5.0*unit.kilojoule_per_mole
+		}
+	if optimizationOpts is None:
+		optimizationOpts = {
+			'temperatureRange': (350., 250.), 
+			'temperatureSteps': (11, 50), 
+			'simulationSteps': 100,
+			'forcefield': None,
+			'constructIntegrator': None, 
+			'constructSystem': None, 
+			'platform': None,
+			'moleculeSelections':['protein'], 
+			'constSimulationTemp': None, 
+			'constrainAtoms': None, 
+			'restrainAtoms': None,
+			'restraintConstant': 5.0*unit.kilojoules/(unit.angstrom**2)
+		}
 
-	counter = 0
-	while counter < maxAttempts:
-		if isinstance(filenames, list):
-			filename = choice(filenames)
+	# Find starting sequence
+	if (child_index == 0) and (firstParent is not False):
+		sequence = get_sequence(md.load(firstParent))
+	elif (random() <= percentRecombination) and (len(filenames) >= 2):
+		sequence = random_recombination(parents=[get_sequence(md.load(x)) for x in filenames])
+	else:
+		sequence = get_sequence(md.load(choice(filenames)))
+
+	if (firstParent is not False) or (child_index != 0):
+		sequence = random_mutagenesis(parent=sequence, sites=sites, **mutationOpts)
+
+	mdl = _homologyKernel(sequence=sequence, templates=filenames)
+	mdl = _refinementKernel(mdl, **refinementOpts)
+	mdl, score = _optimizationKernel(mdl, minimization=minimization, tolerance=tolerance, 
+		maxIterations=maxIterations, **optimizationOpts)
+
+	if retain_models:
+		if workdir is not None:
+			outpath = workdir
 		else:
-			filename = filenames
-		trj = md.load(filename)
+			outpath = os.path.dirname(filename)
+		pdbout = mutant_filename_constructor(outpath, generation_index, child_index)
+		mdl.center_coordinates().save(pdbout)
 
-		if mutationOpts is None:
-			mutationOpts = {'degree':1, 'library': None}
-		if refinementOpts is None:
-			refinementOpts = {'variants':None, 'forcefield':None, 'platform':None, 'pH':7.0, 'minimize':False}
-		if optimizationOpts is None:
-			optimizationOpts = {
-				'temperatureRange': (350., 250.), 
-				'temperatureSteps': (11, 50), 
-				'simulationSteps': 100,
-				'forcefield': None,
-				'constructIntegrator': None, 
-				'constructSystem': None, 
-				'platform': None,
-				'moleculeSelections':['protein'], 
-				'constSimulationTemp': None, 
-				'constrainAtoms': None, 
-				'restrainAtoms': None,
-				'restraintConstant': 5.0*unit.kilojoules/(unit.angstrom**2)
-			}
-
-		try:
-			mdl = _mutagenesisKernel(trj, sites, **mutationOpts)
-			# mdl = mdl.center_coordinates()
-
-			mdl = _refinementKernel(mdl, **refinementOpts)
-			# mdl = mdl.center_coordinates()
-
-			mdl, score = _optimizationKernel(mdl, minimization=minimization, tolerance=tolerance, 
-				maxIterations=maxIterations, **optimizationOpts)
-			# mdl = mdl.center_coordinates()
-
-			if retain_models:
-				if workdir is not None:
-					outpath = workdir
-				else:
-					outpath = os.path.dirname(filename)
-				pdbout = mutant_filename_constructor(outpath, generation_index, child_index)
-				mdl.center_coordinates().save(pdbout)
-
-			# seq_db[generation_index, child_index] = get_sequence(mdl)
-			# score_db[generation_index, child_index] = score.value_in_unit(unit.kilojoule_per_mole)
-
-			energy = score.value_in_unit(unit.kilojoule_per_mole)
-			sequence = get_sequence(mdl)
-
-			counter = maxAttempts
-
-		except:
-			print('\nERROR: failed to generate child %d from generation %d ... attempt %d\n' % (child_index, generation_index, counter))
-			# seq_db[generation_index, child_index] = None
-			# score_db[generation_index, child_index] = np.nan
-
-		counter += 1
+	energy = score.value_in_unit(unit.kilojoule_per_mole)
+	sequence = get_sequence(mdl)
 
 	return (energy, sequence)
 
-def _mutagenesisKernel(trj, sites, **kwargs):
-	"""
-	inputs
-	======
-	trj: mdtraj.Trajectory
-		Structure to be mutated. Must be object and not filename in path.
-	sites: list
-		List of mutatable positions of the form (<chain index>, <residue position index>).
-		All indices start at 0 for each chain. Thus, neither chain index or position
-		index will be unique. Only the tuple of chain index and position index will be
-		unique.
-	**kwargs:
-		Kewword arguments suitable for protean.mutate.mutate.random_mutagenesis
+# def _variationKernel(filenames, generation_index, child_index, sites, #seq_db, score_db, # need to replace method to support recombination
+# 	firstParent=False, percentRecombination=-1.0,
+# 	minimization=True, tolerance=5.*unit.kilojoule_per_mole, maxIterations=1000,
+# 	mutationOpts=None, refinementOpts=None, optimizationOpts=None, 
+# 	retain_models=True, workdir=None, maxAttempts=5):
 
-	outputs
-	=======
-	out: mdtraj.Trajectory
-		Mutated structure
+# 	assert (filenames is not None) or (workdir is not None)
+# 	if (firstParent is not False) and (generation_index != 0):
+# 		filenames = filenames + [firstParent]
 
-	"""
-	newtrj = random_mutagenesis(trj, sites, **kwargs)
-	return newtrj.center_coordinates()
+# 	# Prepare
+# 	energy = np.nan
+# 	sequence = None
+# 	if mutationOpts is None:
+# 		mutationOpts = {'degree':1, 'library': None}
+# 	if refinementOpts is None:
+# 		refinementOpts = {
+# 			'variants':None, 
+# 			'forcefield':None, 
+# 			'platform':None, 
+# 			'pH':7.0, 
+# 			'minimize':True,
+# 			'maxIterations':1000,
+# 			'energyTol':5.0*unit.kilojoule_per_mole
+# 		}
+# 	if optimizationOpts is None:
+# 		optimizationOpts = {
+# 			'temperatureRange': (350., 250.), 
+# 			'temperatureSteps': (11, 50), 
+# 			'simulationSteps': 100,
+# 			'forcefield': None,
+# 			'constructIntegrator': None, 
+# 			'constructSystem': None, 
+# 			'platform': None,
+# 			'moleculeSelections':['protein'], 
+# 			'constSimulationTemp': None, 
+# 			'constrainAtoms': None, 
+# 			'restrainAtoms': None,
+# 			'restraintConstant': 5.0*unit.kilojoules/(unit.angstrom**2)
+# 		}
+
+# 	# Try to generate model
+# 	counter = 0
+# 	while counter < maxAttempts:
+
+# 		# Find starting sequence
+# 		if (child_index == 0) and (firstParent is not False):
+# 			sequence = get_sequence(md.load(firstParent))
+# 		elif (random() <= percentRecombination) and (len(filenames) >= 2):
+# 			sequence = random_recombination(parents=[get_sequence(md.load(x)) for x in filenames])
+# 		else:
+# 			sequence = get_sequence(md.load(choice(filenames)))
+
+# 		if (firstParent is not False) or (child_index != 0):
+# 			sequence = random_mutagenesis(parent=sequence, sites=sites, **mutationOpts)
+
+# 		mdl = _homologyKernel(sequence=sequence, templates=filenames)
+
+# 		try:
+# 			mdl = _refinementKernel(mdl, **refinementOpts)
+# 			mdl, score = _optimizationKernel(mdl, minimization=minimization, tolerance=tolerance, 
+# 				maxIterations=maxIterations, **optimizationOpts)
+
+# 			if retain_models:
+# 				if workdir is not None:
+# 					outpath = workdir
+# 				else:
+# 					outpath = os.path.dirname(filename)
+# 				pdbout = mutant_filename_constructor(outpath, generation_index, child_index)
+# 				mdl.center_coordinates().save(pdbout)
+
+# 			# seq_db[generation_index, child_index] = get_sequence(mdl)
+# 			# score_db[generation_index, child_index] = score.value_in_unit(unit.kilojoule_per_mole)
+
+# 			energy = score.value_in_unit(unit.kilojoule_per_mole)
+# 			sequence = get_sequence(mdl)
+
+# 			counter = maxAttempts
+
+# 		except:
+# 			print('\nERROR: failed to generate child %d from generation %d ... attempt %d\n' % (child_index, generation_index, counter))
+# 			# seq_db[generation_index, child_index] = None
+# 			# score_db[generation_index, child_index] = np.nan
+
+# 		counter += 1
+
+# 	return (energy, sequence)
+
+# def _mutagenesisKernel(trj, sites, **kwargs):
+# 	"""
+# 	inputs
+# 	======
+# 	trj: mdtraj.Trajectory
+# 		Structure to be mutated. Must be object and not filename in path.
+# 	sites: list
+# 		List of mutatable positions of the form (<chain index>, <residue position index>).
+# 		All indices start at 0 for each chain. Thus, neither chain index or position
+# 		index will be unique. Only the tuple of chain index and position index will be
+# 		unique.
+# 	**kwargs:
+# 		Kewword arguments suitable for protean.mutate.mutate.random_mutagenesis
+
+# 	outputs
+# 	=======
+# 	out: mdtraj.Trajectory
+# 		Mutated structure
+
+# 	"""
+# 	newtrj = random_mutagenesis(trj, sites, **kwargs)
+# 	return newtrj.center_coordinates()
 
 def _homologyKernel(sequence, templates, **kwargs):
-	if isinstance(templates, mdTrajecotry):
+	if isinstance(templates, md.Trajectory):
 		templates = [templates]
 	elif isinstance(templates, str):
 		templates = [md.load(templates)]

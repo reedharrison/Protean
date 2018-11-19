@@ -129,7 +129,7 @@ def plotScoreDistribution(evolver, byGeneration=True, ax=None, **kwargs):
 		h = sns.distplot(scores, ax=ax, **kwargs)
 		ax.set_xlabel('Score (kJ/mol)')
 		ax.set_ylabel('Density')
-	if ax is None:
+	if newFig:
 		fig.tight_layout()
 		return fig, ax
 	else:

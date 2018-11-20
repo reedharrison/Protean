@@ -307,7 +307,7 @@ class Evolve:
 			self = p.load(h)
 
 		if generation_index is None:
-			genMask = [any(self.sequences[i,:] is None) for i in range(self._nGenerations)]
+			genMask = [any([x is None for x in self.sequences[i,:]]) for i in range(self._nGenerations)]
 			genIdx = [i for i, flag in enumerate(genMask) if flag][0]
 		else:
 			genIdx = generation_index

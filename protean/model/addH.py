@@ -1,7 +1,7 @@
 from protean.optimize.defaults import _ForceFieldKernel_ImplicitSolvent
 from protean.optimize.EnergyMinimization import EnergyMinimization
 
-from simtk.openmm import app
+from simtk.openmm import app, Platform
 from simtk import unit
 
 
@@ -16,6 +16,8 @@ def protonate_protein(topology, positions, variants=None, forcefield=None, platf
 	"""
 	if forcefield is None:
 		forcefield = _ForceFieldKernel_ImplicitSolvent()
+	if platform is None:
+		platform = Platform.getPlatformByName('CPU')
 
 	modeller = app.Modeller(topology, positions)
 

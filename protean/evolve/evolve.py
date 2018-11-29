@@ -255,8 +255,8 @@ class Evolve:
 			for result in results:
 				scores.append(result[0])
 				sequences.append(result[1])
-			self.scores[generation_index, :] = scores
-			self.sequences[generation_index, :] = sequences
+			self.scores[generation_index, firstChild:] = scores
+			self.sequences[generation_index, firstChild:] = sequences
 
 		with open(self._checkpoint, 'wb') as h:
 			p.dump(self, h)
@@ -303,9 +303,6 @@ class Evolve:
 		return
 
 	def restart(self, verbose=0, generation_index=None, child_index=None):
-		with open(self._checkpoint, 'rb') as h:
-			self = p.load(h)
-
 		if generation_index is None:
 			genMask = [any([x is None for x in self.sequences[i,:]]) for i in range(self._nGenerations)]
 			genIdx = [i for i, flag in enumerate(genMask) if flag][0]

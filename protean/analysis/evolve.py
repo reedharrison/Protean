@@ -35,7 +35,7 @@ def write_msa(records, filename, fmt='fasta'):
 	return
 
 def extractEvolvedSequences(evolver, alphabet=Alphabet.IUPAC.IUPACProtein(),
-	generation_indices=None, children_indices=None):
+	generation_indices=None, children_indices=None, chainid=None):
 	msa = []
 
 	sequences = evolver.sequences
@@ -44,6 +44,8 @@ def extractEvolvedSequences(evolver, alphabet=Alphabet.IUPAC.IUPACProtein(),
 	if children_indices is not None:
 		sequences = sequences[:, children_indices]
 	sequences = sequences.flatten().tolist()
+	if chainid is not None:
+		sequences = [x.split('/')[chainid] for x in sequences]
 
 	for i, sequence in enumerate(sequences):
 		gid, cid = np.unravel_index(i, (evolver._nGenerations, evolver._nChildren))
@@ -97,7 +99,7 @@ def sequenceLogo(evolver, filename=None, k=10., chainid=0, generation_indices=No
 	firstPosition = np.min([x[1] for x in evolver._sites if x[0] == chainid])
 	lastPosition = np.max([x[1] for x in evolver._sites if x[0] == chainid]) + 1
 	sequences = extractEvolvedSequences(evolver, generation_indices=generation_indices,
-		children_indices=children_indices, alphabet=alphabet)
+		children_indices=children_indices, alphabet=alphabet, chainid=chainid)
 	sequences = [x[firstPosition:lastPosition] for x in sequences]
 
 	scores = np.asarray([x for x in evolver.scores.flatten() if not np.isnan(x)])

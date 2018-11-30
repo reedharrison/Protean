@@ -61,7 +61,7 @@ def extractEvolvedSequences(evolver, alphabet=Alphabet.IUPAC.IUPACProtein(),
 		)
 	return msa
 
-def reweightedMotif(sequences, fitness, k=10.):
+def reweightedMotif(sequences, probs):
 	alphabet = sequences[0].seq.alphabet
 	n_records = len(sequences)
 	n_positions = len(sequences[0])
@@ -69,15 +69,11 @@ def reweightedMotif(sequences, fitness, k=10.):
 	assert all([len(x) == n_positions for x in sequences])
 	assert all([x.seq.alphabet == alphabet for x in sequences])
 
-	factors = fitness / fitness.min()
-	probs = np.exp(factors / float(k))
-	probs = probs / probs.sum()
 	probs = probs.reshape((-1, 1, 1))
 	probs = np.repeat(probs, n_positions, axis=1)
 	probs = np.repeat(probs, n_letters, axis=2)
 
 	counts = np.zeros((n_records, n_positions, n_letters))
-
 	for i, record in enumerate(sequences):
 		for j in range(n_positions):
 			for k in range(n_letters):
@@ -94,18 +90,56 @@ def reweightedMotif(sequences, fitness, k=10.):
 	m = motifs.Motif(counts=d, alphabet=alphabet)
 	return m
 
+# def reweightedMotif(sequences, fitness, k=10.):
+# 	alphabet = sequences[0].seq.alphabet
+# 	n_records = len(sequences)
+# 	n_positions = len(sequences[0])
+# 	n_letters = len(alphabet.letters)
+# 	assert all([len(x) == n_positions for x in sequences])
+# 	assert all([x.seq.alphabet == alphabet for x in sequences])
+
+# 	factors = fitness / fitness.min()
+# 	probs = np.exp(factors / float(k))
+# 	probs = probs / probs.sum()
+# 	probs = probs.reshape((-1, 1, 1))
+# 	probs = np.repeat(probs, n_positions, axis=1)
+# 	probs = np.repeat(probs, n_letters, axis=2)
+
+# 	counts = np.zeros((n_records, n_positions, n_letters))
+
+# 	for i, record in enumerate(sequences):
+# 		for j in range(n_positions):
+# 			for k in range(n_letters):
+# 				if record[j] == alphabet.letters[k]:
+# 					counts[i, j, k] += 1
+
+# 	counts = counts * probs
+# 	counts = counts * n_records / counts.sum()
+# 	counts = counts.sum(axis=0)
+# 	d = {}
+# 	for i, letter in enumerate(alphabet.letters):
+# 		d[letter] = counts[:, i].tolist()
+
+# 	m = motifs.Motif(counts=d, alphabet=alphabet)
+# 	return m
+
 def sequenceLogo(evolver, filename=None, k=10., chainid=0, generation_indices=None, 
-	children_indices=None, alphabet=Alphabet.IUPAC.IUPACProtein(), format='SVG'):
-	firstPosition = np.min([x[1] for x in evolver._sites if x[0] == chainid])
-	lastPosition = np.max([x[1] for x in evolver._sites if x[0] == chainid]) + 1
+	children_indices=None, alphabet=Alphabet.IUPAC.IUPACProtein(), format='SVG',
+	positionSpan=None):
+	if positionSpan is None:
+		firstPosition = np.min([x[1] for x in evolver._sites if x[0] == chainid])
+		lastPosition = np.max([x[1] for x in evolver._sites if x[0] == chainid]) + 1
+	else:
+		firstPosition, lastPosition = positionSpan
+
 	sequences = extractEvolvedSequences(evolver, generation_indices=generation_indices,
 		children_indices=children_indices, alphabet=alphabet, chainid=chainid)
 	sequences = [x[firstPosition:lastPosition] for x in sequences]
 
-	scores = np.asarray([x for x in evolver.scores.flatten() if not np.isnan(x)])
+	probs = np.asarray([x for x, y in zip(evolver.p().flatten(), evolver.scores.flatten()) if not np.isnan(y)])
 	sequences = [x for x, y in zip(sequences, evolver.scores.flatten()) if not np.isnan(y)]
 
-	m = reweightedMotif(sequences, fitness=scores, k=10.)
+	m = reweightedMotif(sequences, probs=probs) #, k=2.5)
 	if filename is None:
 		return m
 	else:

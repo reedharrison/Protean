@@ -13,6 +13,15 @@ from protean.model.homology import homology_model
 from protean.model.addH import protonate_protein
 from protean.utilities.conversion import mdtraj2openmm, openmm2mdtraj
 
+from simtk.openmm.app import PDBFile
+
+from Bio.SeqUtils import IUPACData
+
+"""
+Dictionaries
+============
+"""
+protein_letters_3to1 = {key.upper(): val for key, val in IUPACData.protein_letters_3to1.items()}
 
 """
 Schemes
@@ -56,6 +65,12 @@ def get_sequence(trj, chainSep='/'):
 				sequence.append(chainSep)
 			for residue in chain.residues:
 				sequence.append(residue.code)
+	elif isinstance(trj, PDBFile):
+		for chain in trj.topology.chains():
+			if len(sequence) != 0:
+				sequence.append(chainSep)
+			for residue in chain.residues():
+				sequence.append(protein_letters_3to1.get(residue.name.upper(), ''))
 	elif isinstance(trj, str):
 		trj = md.load(trj)
 		for chain in trj.chains:
@@ -65,7 +80,7 @@ def get_sequence(trj, chainSep='/'):
 				sequence.append(residue.code)
 	else:
 		raise Exception('No method to get sequence for %s' % type(trj))
-	return ''.join(sequence)
+	return ''.join(sequence).strip('/')
 
 def generate_sites(trj, selection=None, indices=None):
 	if isinstance(trj, str):
